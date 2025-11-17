@@ -83,26 +83,8 @@ Git / GitHub
 ---
 
 # 📁 프로젝트 구조
-UMPA/
- ├── public/
- │   └── images/
- │        ├── logo.png
- │        └── laptop.png
- │
- ├── src/
- │   ├── pages/
- │   │     ├── Home.js
- │   │     ├── Upload.js
- │   │     ├── Analyze.js
- │   │     └── LivePitch.js
- │   │
- │   ├── components/
- │   │     └── (파형/공통 컴포넌트 영역)
- │   │
- │   ├── App.js
- │   └── index.js
- │
- └── README.md
+<img width="596" height="539" alt="스크린샷 2025-11-17 오후 12 37 10" src="https://github.com/user-attachments/assets/304e08ae-ebcd-472b-bf17-9d9b9724ec95" />
+
  
  ----
 
