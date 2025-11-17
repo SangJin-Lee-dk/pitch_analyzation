@@ -99,16 +99,6 @@ Git / GitHub
 
 ---
 
-#🤝 기여 안내
-UMPA는 오픈소스 프로젝트입니다.
-버그 수정, UI 개선, 기능 확장 등 모든 기여를 환영합니다.
-Issue 생성
-Pull Request 제출
-제안서/문서화 기여
-언제든지 환영합니다.
-
----
-
 # 📧 문의
 GitHub: Rachel1028
 Email: heoyunseo72@gmail.com
