@@ -89,12 +89,13 @@ Git / GitHub
  ----
 
 # 📜 라이선스 및 오픈소스 명시
-UMPA는 오픈소스 기반으로 개발되었으며, 다음 라이브러리를 사용합니다:
-라이브러리	기능	라이선스
-Pitchfinder.js	음높이 분석(YIN)	MIT
-React.js	UI 프레임워크	MIT
-Styled-components	컴포넌트 스타일링	MIT
-Wavesurfer.js (추가 예정)	파형 시각화	BSD
+| 라이브러리                     | 기능          | 라이선스 |
+| ------------------------- | ----------- | ---- |
+| **Pitchfinder.js**        | 음높이 분석(YIN) | MIT  |
+| **React.js**              | UI 프레임워크    | MIT  |
+| **Styled-components**     | 컴포넌트 스타일링   | MIT  |
+| **Wavesurfer.js** (추가 예정) | 파형 시각화      | BSD  |
+
 
 ---
 
