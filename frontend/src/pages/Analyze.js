@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import Pitchfinder from "pitchfinder";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer
 } from "recharts";
 
 export default function Analyze() {
@@ -22,9 +22,19 @@ export default function Analyze() {
   const [currentTime, setCurrentTime] = useState(0); 
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // 애니메이션 루프 제어용 Ref 추가
+  // 재생 루프용 Ref
   const requestRef = useRef(); 
   const isPlayingRef = useRef(false); // 루프 안에서 즉시 상태 확인용
+  // ⚡ [최적화] 빨간 선을 직접 조종하기 위한 리모컨(Ref)
+  const cursorRef = useRef(null);
+
+  // ⚡ [중요 1] 차트 여백을 상수로 고정합니다! (이 값이 기준이 됩니다)
+  const CHART_MARGINS = {
+     left: 60,  // Y축 숫자 들어갈 공간 (60px)
+     right: 20, // 오른쪽 여백 (20px)
+     top: 10,
+     bottom: 30 // X축 글씨 들어갈 공간
+  };
 
   useEffect(() => {
     if (!file) return;
@@ -210,65 +220,67 @@ export default function Analyze() {
     return processed;
   };
 
+  // ============================================================
+  // ▶️ 재생 로직 (Direct DOM Manipulation 적용)
+  // ============================================================
   const play = () => {
     if (!audioContext || !audioBuffer) return;
-    
-    // 이미 재생 중이면 중복 실행 방지
     if (isPlayingRef.current) return;
 
-    if (sourceNode) sourceNode.stop();
+    if (sourceNode) {
+        try { sourceNode.stop(); } catch(e) {}
+        sourceNode.disconnect();
+    }
 
     const newSource = audioContext.createBufferSource();
     newSource.buffer = audioBuffer;
     newSource.connect(audioContext.destination);
-    
-    // 현재 시점부터 재생
     newSource.start(0, currentTime);
 
-    // 재생 시작 시간 계산
     const startAt = audioContext.currentTime - currentTime;
+    const duration = audioBuffer.duration; // 전체 길이
 
-    // 상태 동기화
     setIsPlaying(true);
-    isPlayingRef.current = true; // Ref도 true로
+    isPlayingRef.current = true;
+    setSourceNode(newSource);
 
     const update = () => {
-      // 루프 안에서는 Ref를 바라봐야 멈추지 않음
       if (!isPlayingRef.current) return;
 
-      const t = audioContext.currentTime - startAt;
-      
-      // 버퍼 길이 넘어가면 정지
-      if (t >= audioBuffer.duration) {
+      const now = audioContext.currentTime - startAt;
+
+      if (now >= duration) {
         pause();
-        setCurrentTime(0); // 끝나면 0초로
+        // 끝났을 때 커서와 시간 초기화
+        setCurrentTime(0);
+        if (cursorRef.current) cursorRef.current.style.left = "0%";
         return;
       }
 
-      setCurrentTime(t);
+      // ⚡ [핵심] 리액트 State(setCurrentTime)를 매번 부르면 랙 걸림!
+      // 그래서 텍스트용 State는 가끔 업데이트하거나, 
+      // 여기서는 텍스트 업데이트도 랙의 원인이 될 수 있으므로 일단 둠.
+      // (만약 텍스트도 랙 걸리면 이것도 Ref로 바꿔야 함)
+      setCurrentTime(now); 
+
+      // ⚡ [핵심] 빨간 선은 브라우저 DOM을 직접 건드려서 옮김 (리렌더링 X)
+      // 전체 길이 대비 현재 진행 퍼센트 계산
+      if (cursorRef.current && duration > 0) {
+        const percent = (now / duration) * 100;
+        cursorRef.current.style.left = `${percent}%`;
+      }
+
       requestRef.current = requestAnimationFrame(update);
     };
 
     requestRef.current = requestAnimationFrame(update);
-    setSourceNode(newSource);
   };
 
   const pause = () => {
-    if (sourceNode) {
-      try {
-        sourceNode.stop();
-      } catch (e) {
-        // 이미 멈춘 경우 무시
-      }
-    }
-    
-    // 루프 취소
-    if (requestRef.current) {
-      cancelAnimationFrame(requestRef.current);
-    }
-
+    if (sourceNode) { try { sourceNode.stop(); } catch (e) {} }
+    if (requestRef.current) cancelAnimationFrame(requestRef.current);
     setIsPlaying(false);
-    isPlayingRef.current = false; // Ref false로 변경하여 루프 탈출
+    isPlayingRef.current = false;
   };
 
   // 컴포넌트가 사라질 때(언마운트) 정리
@@ -281,11 +293,25 @@ export default function Analyze() {
     };
   }, []); // 의존성 배열 비움
 
-  // 차트 데이터 변환 (0 -> null)
-  const chartData = data.map((d) => ({
-    ...d,
-    hz: d.hz <= 0 ? null : d.hz,
-  }));
+  // 차트 클릭 핸들러
+  const handleChartClick = (e) => {
+    if (e && e.activeLabel && audioBuffer) {
+        const clickedTime = parseFloat(e.activeLabel);
+        pause(); 
+        setCurrentTime(clickedTime);
+        
+        // 클릭했을 때도 빨간 선 위치 즉시 이동
+        if (cursorRef.current && audioBuffer.duration > 0) {
+            const percent = (clickedTime / audioBuffer.duration) * 100;
+            cursorRef.current.style.left = `${percent}%`;
+        }
+    }
+  };
+
+  // 0값 필터링 (기존 로직)
+  const chartData = useMemo(() => {
+      return data.map((d) => ({ ...d, hz: d.hz <= 0 ? null : d.hz }));
+  }, [data]);
 
   // --- [UI 렌더링] ---
   return (
@@ -316,52 +342,86 @@ export default function Analyze() {
         <>
           <div style={{ marginBottom: "20px" }}>
             {!isPlaying ? (
-              <button onClick={play} style={styles.button}>▶ 재생</button>
+              <button onClick={play} style={styles.button}>
+                 {currentTime > 0 ? "▶ 이어듣기" : "▶ 재생"}
+              </button>
             ) : (
               <button onClick={pause} style={styles.button}>⏸ 일시정지</button>
             )}
+            <span style={{marginLeft: "15px", fontSize: "18px"}}>
+               ⏱ {currentTime.toFixed(2)}s
+            </span>
           </div>
           
-          <ResponsiveContainer width="95%" height={400}>
-            <LineChart 
-              data={chartData}
-              onClick={(e) => {
-                if (e && e.activeLabel) {
-                  const clickedTime = parseFloat(e.activeLabel);
-                  setCurrentTime(clickedTime);
-                  // 재생 중 이동 시 바로 반영을 위해
-                  if (isPlaying) {
-                     pause(); // 잠깐 멈췄다 다시 재생하거나, UX에 따라 결정
-                     // 여기서는 간단히 멈춤 처리 (사용자가 다시 재생 누르게)
-                  }
-                }
-              }}
-            >
-              <YAxis 
-                  domain={['auto', 'auto']} 
-                  tickCount={10} 
-                  width={40}
-              />
-              <XAxis dataKey="time" />
-              <Tooltip />
-              {/* 6. 빨간 선: x값에 숫자를 그대로 넣어야 정확하게 매칭됨 */}
-              <ReferenceLine 
-                x={currentTime} 
-                stroke="red" 
-                strokeWidth={2}
-                isFront={true} // 라인이 데이터보다 앞에 오게
-                ifOverflow="visible" // 차트 밖으로 나가도 보이게 (안전장치)
-              />
-              <Line 
-                type="monotone" 
-                dataKey="hz" 
-                stroke="#FFD940" 
-                dot={false} 
-                connectNulls={false} 
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          {/* 🛑 [여기가 마법의 구간] 
+            차트 위에 '투명한 막'을 씌우고 그 위에 '빨간 선'을 따로 그립니다.
+          */}
+          <div style={{ position: "relative", width: "95%", height: "400px", margin: "0 auto" }}>
+            
+            {/* 1. 차트 영역 */}
+            <ResponsiveContainer width="100%" height="100%">
+              {/* ⚡ [중요 2] margin을 직접 줘서 그래프가 그려질 위치를 고정합니다 */}
+              <LineChart 
+                  data={chartData} 
+                  onClick={handleChartClick}
+                  margin={{ 
+                      top: CHART_MARGINS.top, 
+                      right: CHART_MARGINS.right, 
+                      left: 0, // Recharts는 YAxis width가 있으면 left margin을 0으로 줘도 됨 (내부에서 처리)
+                      bottom: CHART_MARGINS.bottom 
+                  }}
+              >
+                {/* ⚡ [중요 3] Y축 너비를 'left' 여백값과 똑같이 맞춥니다 */}
+                <YAxis 
+                    domain={['auto', 'auto']} 
+                    tickCount={10} 
+                    width={CHART_MARGINS.left} 
+                />
+                <XAxis dataKey="time" />
+                <Tooltip />
+                <Line 
+                  type="monotone" 
+                  dataKey="hz" 
+                  stroke="#FFD940" 
+                  dot={false} 
+                  connectNulls={false} 
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+
+            {/* 2. 빨간 선이 움직일 '운동장' (Overlay) */}
+            <div style={{
+                position: "absolute",
+                top: CHART_MARGINS.top,    // 차트 위 여백
+                bottom: CHART_MARGINS.bottom, // 차트 아래 여백 (X축 높이만큼)
+                
+                // ⚡ [핵심] 여기가 마법입니다.
+                // 운동장의 시작점을 Y축 너비(60px)만큼 밀어버립니다.
+                left: CHART_MARGINS.left, 
+                
+                // 운동장의 끝점을 오른쪽 여백(20px)만큼 당겨버립니다.
+                right: CHART_MARGINS.right, 
+                
+                pointerEvents: "none",
+                // border: "1px solid cyan", // 디버깅용: 주석 풀면 운동장 크기 보임
+            }}>
+                {/* 3. 실제 빨간 선 */}
+                <div 
+                    ref={cursorRef}
+                    style={{
+                        position: "absolute",
+                        left: "0%", // 이제 0%는 화면 끝이 아니라 '그래프 시작점'이 됩니다!
+                        top: 0,
+                        bottom: 0,
+                        width: "2px",
+                        backgroundColor: "red",
+                        boxShadow: "0 0 5px rgba(255, 0, 0, 0.8)",
+                        willChange: "left"
+                    }}
+                />
+            </div>
+          </div>
         </>
       )}
     </div>
